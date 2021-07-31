@@ -26,6 +26,7 @@ class TensorMeta(Meta):
     max_shape: List[int]
     length: int
     sample_compression: str
+    chunk_compression: str
 
     def __init__(
         self,
@@ -240,6 +241,9 @@ def _validate_required_htype_overwrites(htype_overwrite: dict):
     if htype_overwrite["sample_compression"] not in SUPPORTED_COMPRESSIONS:
         raise UnsupportedCompressionError(htype_overwrite["sample_compression"])
 
+    if htype_overwrite["chunk_compression"] not in SUPPORTED_COMPRESSIONS:
+        raise UnsupportedCompressionError(htype_overwrite["chunk_compression"])
+
     if htype_overwrite["dtype"] is not None:
         _raise_if_condition(
             "dtype",
@@ -258,6 +262,8 @@ def _format_values(htype_overwrite: dict):
     for key, value in COMPRESSION_ALIASES.items():
         if htype_overwrite.get("sample_compression") == key:
             htype_overwrite["sample_compression"] = value
+        if htype_overwrite.get("chunk_compression") == key:
+            htype_overwrite["chunk_compression"] = value
 
 
 def _validate_htype_exists(htype: str):

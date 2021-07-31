@@ -58,6 +58,7 @@ HTYPE_CONFIGURATIONS: Dict[str, Dict] = {
 # these configs are added to every `htype`
 COMMON_CONFIGS = {
     "sample_compression": None,
+    "chunk_compression": None,
     "dtype": None,
 }
 

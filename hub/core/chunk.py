@@ -10,6 +10,8 @@ from hub.core.meta.encode.byte_positions import BytePositionsEncoder
 
 from hub.core.serialize import serialize_chunk, deserialize_chunk, infer_chunk_num_bytes
 
+from hub.core.compression import decompress_multiple
+
 
 class Chunk(Cachable):
     def __init__(
@@ -26,8 +28,8 @@ class Chunk(Cachable):
 
             Header:
                 All samples this chunk contains need 2 components: shape and byte position.
-                `ShapeEncoder` handles encoding the `start_byte` and `end_byte` for each sample.
-                `BytePositionsEncoder` handles encoding the `shape` for each sample.
+                `BytePositionsEncoder` handles encoding the `start_byte` and `end_byte` for each sample.
+                `ShapeEncoder` handles encoding the `shape` for each sample.
 
             Data:
                 All samples this chunk contains are added into `_data` in bytes form directly adjacent to one another, without
@@ -47,6 +49,17 @@ class Chunk(Cachable):
         self.byte_positions_encoder = BytePositionsEncoder(encoded_byte_positions)
 
         self._data: Union[memoryview, bytearray] = data or bytearray()
+        self._decompressed_samples = None
+
+    @property
+    def decompressed_samples(self):
+        """Applicable only for compressed chunks"""
+        if self._decompressed_samples is None:
+            shapes = [
+                self.shapes_encoder[i] for i in range(self.shapes_encoder.num_samples)
+            ]
+            self._decompressed_samples = decompress_multiple(self._data, shapes)
+        self._decompressed_samples
 
     @property
     def memoryview_data(self):
@@ -107,6 +120,7 @@ class Chunk(Cachable):
         num_bytes_per_sample = incoming_num_bytes
         self.shapes_encoder.register_samples(sample_shape, 1)
         self.byte_positions_encoder.register_samples(num_bytes_per_sample, 1)
+        self._decompressed_samples = None
 
     @property
     def nbytes(self):

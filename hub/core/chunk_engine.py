@@ -23,6 +23,8 @@ from hub.core.chunk import Chunk
 
 from hub.core.meta.encode.chunk_id import ChunkIdEncoder
 
+from hub.core.compression import compress_multiple
+
 
 SampleValue = Union[np.ndarray, int, float, bool, Sample]
 
@@ -114,6 +116,10 @@ class ChunkEngine:
         # only the last chunk may be less than this
         self.min_chunk_size = self.max_chunk_size // 2
 
+        if self.tensor_meta.chunk_compression:
+            self._endge_chunk_uncompressed: List[np.ndarray] = []
+            self._edge_chunk_compressed_nbytes = 0
+
     @property
     def chunk_id_encoder(self) -> ChunkIdEncoder:
         """Gets the chunk id encoder from cache, if one is not found it creates a blank encoder.
@@ -197,9 +203,24 @@ class ChunkEngine:
         buffer = self.tensor_meta.adapt(buffer, shape, dtype)
         self.tensor_meta.update(shape, dtype, num_samples)
 
-        buffer_consumed = self._try_appending_to_last_chunk(buffer, shape)
-        if not buffer_consumed:
-            self._append_to_new_chunk(buffer, shape)
+        if self.tensor_meta.chunk_compression:
+            edge_chunk_uncompressed = self._endge_chunk_uncompressed
+            endge_chunk_uncompressed.append(
+                np.frombuffer(buffer, dtype=dtype).reshape(shape)
+            )
+            compressed_bytes = compress_multiple(edge_chunk_uncompressed)
+            if self._can_set_to_last_chunk(len(compressed_bytes)):
+                chunk = self.last_chunk
+            else:
+                chunk = self._create_new_chunk()
+                edge_chunk_uncompressed = edge_chunk_uncompressed[-1:]
+                compressed_bytes = compress_multiple(edge_chunk_uncompressed)
+            self.last_chunk.update_headers(len(buffer), shape)
+            self.last_chunk._data = compressed_bytes
+        else:
+            buffer_consumed = self._try_appending_to_last_chunk(buffer, shape)
+            if not buffer_consumed:
+                self._append_to_new_chunk(buffer, shape)
 
         self.chunk_id_encoder.register_samples(num_samples)
         self._synchronize_cache()
@@ -222,6 +243,12 @@ class ChunkEngine:
         # synchronize chunk ID encoder
         chunk_id_key = get_chunk_id_encoder_key(self.key)
         self.cache[chunk_id_key] = self.chunk_id_encoder
+
+    def _can_set_to_last_chunk(self, nbytes: int) -> bool:
+        last_chunk = self.last_chunk
+        if last_chunk is None:
+            return False
+        return nbytes <= self.max_chunk_size
 
     def _try_appending_to_last_chunk(
         self, buffer: memoryview, shape: Tuple[int]
@@ -249,16 +276,13 @@ class ChunkEngine:
                 self.max_chunk_size, incoming_num_bytes
             )
 
-            extra_bytes = min(incoming_num_bytes, self.max_chunk_size - last_chunk_size)
             combined_chunk_ct = _min_chunk_ct_for_data_size(
                 self.max_chunk_size, incoming_num_bytes + last_chunk_size
             )
 
             # combine if count is same
             if combined_chunk_ct == chunk_ct_content:
-                last_chunk.append_sample(
-                    buffer[:extra_bytes], self.max_chunk_size, shape
-                )
+                last_chunk.append_sample(buffer, self.max_chunk_size, shape)
                 return True
 
         return False
@@ -392,22 +416,28 @@ class ChunkEngine:
 
         buffer = chunk.memoryview_data
         local_sample_index = enc.translate_index_relative_to_chunks(global_sample_index)
-        shape = chunk.shapes_encoder[local_sample_index]
-        sb, eb = chunk.byte_positions_encoder[local_sample_index]
-
-        buffer = buffer[sb:eb]
-        if expect_compressed:
-            sample = decompress_array(buffer, shape)
+        if self.tensor_meta.chunk_compression:
+            return chunk.decompressed_samples[local_sample_index]
         else:
-            sample = np.frombuffer(buffer, dtype=dtype).reshape(shape)
+            shape = chunk.shapes_encoder[local_sample_index]
+            sb, eb = chunk.byte_positions_encoder[local_sample_index]
 
-        return sample
+            buffer = buffer[sb:eb]
+            if expect_compressed:
+                sample = decompress_array(buffer, shape)
+            else:
+                sample = np.frombuffer(buffer, dtype=dtype).reshape(shape)
+
+            return sample
 
     def _check_sample_size(self, num_bytes: int):
         if num_bytes > self.min_chunk_size:
             msg = f"Sorry, samples that exceed minimum chunk size ({self.min_chunk_size} bytes) are not supported yet (coming soon!). Got: {num_bytes} bytes."
 
-            if self.tensor_meta.sample_compression is None:
+            if (
+                self.tensor_meta.sample_compression is None
+                and self.tensor_meta.chunk_compression is None
+            ):
                 msg += "\nYour data is uncompressed, so setting `sample_compression` in `Dataset.create_tensor` could help here!"
 
             raise NotImplementedError(msg)
