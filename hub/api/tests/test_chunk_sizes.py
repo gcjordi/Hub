@@ -53,17 +53,17 @@ def test_append(memory_ds):
     _append_tensors(images, labels)
 
     _assert_num_chunks(labels, 1)
+    _assert_num_chunks(images, 3)
+
+    _append_tensors(images, labels)
+
+    _assert_num_chunks(labels, 1)
     _assert_num_chunks(images, 5)
 
     _append_tensors(images, labels)
 
     _assert_num_chunks(labels, 1)
-    _assert_num_chunks(images, 10)
-
-    _append_tensors(images, labels)
-
-    _assert_num_chunks(labels, 1)
-    _assert_num_chunks(images, 15)
+    _assert_num_chunks(images, 8)
 
     assert len(ds) == 300
 
@@ -77,17 +77,17 @@ def test_extend(memory_ds):
     _extend_tensors(images, labels)
 
     _assert_num_chunks(labels, 1)
+    _assert_num_chunks(images, 3)
+
+    _extend_tensors(images, labels)
+
+    _assert_num_chunks(labels, 1)
     _assert_num_chunks(images, 5)
 
     _extend_tensors(images, labels)
 
     _assert_num_chunks(labels, 1)
-    _assert_num_chunks(images, 10)
-
-    _extend_tensors(images, labels)
-
-    _assert_num_chunks(labels, 1)
-    _assert_num_chunks(images, 15)
+    _assert_num_chunks(images, 8)
 
     assert len(ds) == 300
 
@@ -101,21 +101,21 @@ def test_extend_and_append(memory_ds):
     _extend_tensors(images, labels)
 
     _assert_num_chunks(labels, 1)
+    _assert_num_chunks(images, 3)
+
+    _append_tensors(images, labels)
+
+    _assert_num_chunks(labels, 1)
     _assert_num_chunks(images, 5)
+
+    _extend_tensors(images, labels)
+
+    _assert_num_chunks(labels, 1)
+    _assert_num_chunks(images, 8)
 
     _append_tensors(images, labels)
 
     _assert_num_chunks(labels, 1)
     _assert_num_chunks(images, 10)
-
-    _extend_tensors(images, labels)
-
-    _assert_num_chunks(labels, 1)
-    _assert_num_chunks(images, 15)
-
-    _append_tensors(images, labels)
-
-    _assert_num_chunks(labels, 1)
-    _assert_num_chunks(images, 20)
 
     assert len(ds) == 400

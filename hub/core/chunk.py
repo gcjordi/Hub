@@ -79,18 +79,24 @@ class Chunk(Cachable):
     def has_space_for(self, num_bytes: int, max_data_bytes: int):
         return self.num_data_bytes + num_bytes <= max_data_bytes
 
-    def append_sample(self, buffer: memoryview, max_data_bytes: int, shape: Tuple[int]):
+    def extend_samples(
+        self,
+        buffer: memoryview,
+        max_data_bytes: int,
+        shapes: Sequence[Tuple[int]],
+        nbytes: Sequence[int],
+    ):
         """Store `buffer` in this chunk.
 
         Args:
-            buffer (memoryview): Buffer that represents a single sample.
+            buffer (memoryview): Buffer that represents multiple samples of same shape
             max_data_bytes (int): Used to determine if this chunk has space for `buffer`.
-            shape (Tuple[int]): Shape for the sample that `buffer` represents.
+            shapes (Sequence[Tuple[int]]): Shape for each sample
+            nbytes (Sequence[int]): Number of bytes in each sample
 
         Raises:
             FullChunkError: If `buffer` is too large.
         """
-
         incoming_num_bytes = len(buffer)
 
         if not self.has_space_for(incoming_num_bytes, max_data_bytes):
@@ -104,7 +110,22 @@ class Chunk(Cachable):
 
         # note: incoming_num_bytes can be 0 (empty sample)
         self._data += buffer
-        self.update_headers(incoming_num_bytes, shape)
+
+        for nb, shape in zip(nbytes, shapes):
+            self.update_headers(nb, shape)
+
+    def append_sample(self, buffer: memoryview, max_data_bytes: int, shape: Tuple[int]):
+        """Store `buffer` in this chunk.
+
+        Args:
+            buffer (memoryview): Buffer that represents a single sample.
+            max_data_bytes (int): Used to determine if this chunk has space for `buffer`.
+            shape (Tuple[int]): Shape for the sample that `buffer` represents.
+
+        Raises:
+            FullChunkError: If `buffer` is too large.
+        """
+        self.extend_samples(buffer, max_data_bytes, [shape], [len(buffer)])
 
     def update_headers(self, incoming_num_bytes: int, sample_shape: Tuple[int]):
         """Updates this chunk's header. A chunk should NOT exist without headers.

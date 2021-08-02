@@ -1,9 +1,10 @@
-from hub.core.compression import decompress_array
+from hub.core.compression import compress_array, decompress_array
 from math import ceil
 from typing import Optional, Sequence, Union, Tuple, List, Set
 from hub.util.exceptions import (
     CorruptedMetaError,
     DynamicTensorNumpyError,
+    TensorDtypeMismatchError,
 )
 from hub.core.meta.tensor_meta import TensorMeta
 from hub.core.index.index import Index
@@ -16,6 +17,8 @@ from hub.core.sample import Sample  # type: ignore
 from hub.constants import DEFAULT_MAX_CHUNK_SIZE
 
 import numpy as np
+
+from itertools import repeat
 
 from hub.core.storage.lru_cache import LRUCache
 
@@ -184,6 +187,81 @@ class ChunkEngine:
         tensor_meta_key = get_tensor_meta_key(self.key)
         return self.cache.get_cachable(tensor_meta_key, TensorMeta)
 
+    def _extend_ndarray(self, array: np.ndarray):
+        """TODO docstring"""
+
+        self.cache.check_readonly()
+
+        array = self.tensor_meta.adapt_samples(array)
+        sample_shape = array[0].shape if len(array) else ()
+        chunk_compression = self.tensor_meta.chunk_compression
+        if chunk_compression:
+            last_chunk_uncompressed = self._last_chunk_uncompressed
+            for sample in array:
+                # TODO optimize this
+                last_chunk_uncompressed.append(sample)
+                compressed_bytes = compress_multiple(last_chunk_uncompressed)
+                if self._can_set_to_last_chunk(len(compressed_bytes)):
+                    chunk = self.last_chunk
+                else:
+                    chunk = self._create_new_chunk()
+                    last_chunk_uncompressed = last_chunk_uncompressed[-1:]
+                    compressed_bytes = compress_multiple(last_chunk_uncompressed)
+                chunk.update_headers(len(buffer), shape)
+                chunk._data = compressed_bytes
+                self.chunk_id_encoder.register_samples(1)
+        else:
+            sample_compression = self.tensor_meta.sample_compression
+            nbytes = np.zeros(len(array), dtype=int)
+            if sample_compression:
+                compressed_samples = []
+                for i, sample in enumerate(array):
+                    compressed_sample = compress_array(sample, sample_compression)
+                    compressed_samples.append(compressed_sample)
+                    nbytes[i] = len(compressed_sample)
+                    self._check_sample_size(len(compressed_sample))
+                buffer = memoryview(b"".join(compressed_samples))
+            else:
+                buffer = memoryview(array.tobytes())
+                sample_size = array[0].nbytes if len(array) else 0
+                self._check_sample_size(sample_size)
+                nbytes.fill(sample_size)
+            chunk = self.last_chunk if self.last_chunk else self._create_new_chunk()
+            while True:
+                remaining_bytes_in_chunk = self.max_chunk_size - chunk.num_data_bytes
+                num_samples_to_current_chunk = 0
+                num_bytes_to_current_chunk = 0
+                while True:
+                    if num_samples_to_current_chunk == len(nbytes):
+                        break
+                    if (
+                        num_bytes_to_current_chunk
+                        + nbytes[num_samples_to_current_chunk]
+                        <= remaining_bytes_in_chunk
+                    ):
+                        num_bytes_to_current_chunk += nbytes[
+                            num_samples_to_current_chunk
+                        ]
+                        num_samples_to_current_chunk += 1
+                    else:
+                        break
+                if num_samples_to_current_chunk:
+                    chunk.extend_samples(
+                        buffer[:num_bytes_to_current_chunk],
+                        self.max_chunk_size,
+                        repeat(sample_shape, num_samples_to_current_chunk),
+                        nbytes[:num_samples_to_current_chunk],
+                    )
+                    self.chunk_id_encoder.register_samples(num_samples_to_current_chunk)
+                    buffer = buffer[num_bytes_to_current_chunk:]
+                    nbytes = nbytes[num_samples_to_current_chunk:]
+                if len(buffer) > 0:
+                    chunk = self._create_new_chunk()
+                else:
+                    break
+        self.tensor_meta.update(sample_shape, array.dtype, len(array))
+        self._synchronize_cache()
+
     def _append_bytes(self, buffer: memoryview, shape: Tuple[int], dtype: np.dtype):
         """Treat `buffer` as a single sample and place them into `Chunk`s. This function implements the algorithm for
         determining which chunks contain which parts of `buffer`.
@@ -201,7 +279,7 @@ class ChunkEngine:
         num_samples = 1
 
         # update tensor meta first because erroneous meta information is better than un-accounted for data.
-        buffer = self.tensor_meta.adapt(buffer, shape, dtype)
+        buffer = self.tensor_meta.adapt_sample(buffer, shape, dtype)
         self.tensor_meta.update(shape, dtype, num_samples)
 
         if self.tensor_meta.chunk_compression:
@@ -315,32 +393,7 @@ class ChunkEngine:
         """Formats a batch of `samples` and feeds them into `_append_bytes`."""
 
         if isinstance(samples, np.ndarray):
-            compression = self.tensor_meta.sample_compression
-            if compression is None:
-                buffers = []
-
-                # before adding any data, we need to check all sample sizes
-                for sample in samples:
-                    buffer = memoryview(sample.tobytes())
-                    self._check_sample_size(len(buffer))
-                    buffers.append(buffer)
-
-                for buffer in buffers:
-                    self._append_bytes(buffer, sample.shape, sample.dtype)
-            else:
-                sample_objects = []
-                compression = self.tensor_meta.sample_compression
-
-                # before adding any data, we need to check all sample sizes
-                for sample in samples:
-                    sample_object = Sample(array=sample)
-                    sample_objects.append(sample_object)
-                    num_bytes = len(sample_object.compressed_bytes(compression))
-                    self._check_sample_size(num_bytes)
-
-                for sample_object in sample_objects:
-                    self.append(sample_object)
-
+            self._extend_ndarray(samples)
         elif isinstance(samples, Sequence):
             if is_uniform_sequence(samples):
                 self.extend(np.array(samples))
@@ -433,7 +486,7 @@ class ChunkEngine:
 
     def _check_sample_size(self, num_bytes: int):
         if num_bytes > self.min_chunk_size:
-            msg = f"Sorry, samples that exceed minimum chunk size ({self.min_chunk_size} bytes) are not supported yet (coming soon!). Got: {num_bytes} bytes."
+            msg = f"Sorry, samples that exceed maximum chunk size ({self.max_chunk_size} bytes) are not supported yet (coming soon!). Got: {num_bytes} bytes."
 
             if (
                 self.tensor_meta.sample_compression is None

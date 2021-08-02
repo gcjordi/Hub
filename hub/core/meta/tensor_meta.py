@@ -61,7 +61,44 @@ class TensorMeta(Meta):
 
         super().__init__()
 
-    def adapt(self, buffer: memoryview, shape: Tuple[int], dtype) -> memoryview:
+    def adapt_samples(self, samples: np.ndarray) -> np.ndarray:
+        """Checks if this tensor meta is compatible with a sample's properties, as well as upcasts
+        the incoming samples to match the tensor's dtype if needed (and possible).
+
+        Args:
+            samples (np.ndarray): ndarray object containing the samples
+
+        Returns:
+            The samples as a ndarray which might be upcasted to match the meta's dtype.
+
+        Raises:
+            TensorDtypeMismatchError: Dtype for array must be equal to or castable to this meta's dtype
+            TensorInvalidSampleShapeError: If a sample already exists, `len(array.shape)` has to be consistent for all arrays.
+        """
+        dtype = samples.dtype
+        if self.dtype and self.dtype != dtype.name:
+            if np.can_cast(dtype, self.dtype):
+                samples = np.cast[self.dtype](samples)
+            else:
+                raise TensorDtypeMismatchError(
+                    self.dtype,
+                    dtype.name,
+                    self.htype,
+                )
+        # shape length is only enforced after at least 1 sample exists.
+        if self.length > 0:
+            expected_shape_len = len(self.min_shape)
+            actual_shape_len = samples.ndim - 1
+            if expected_shape_len != actual_shape_len:
+                raise TensorInvalidSampleShapeError(
+                    "Sample shape length is expected to be {}, actual length is {}.".format(
+                        expected_shape_len, actual_shape_len
+                    ),
+                    samples.shape,
+                )
+        return samples
+
+    def adapt_sample(self, buffer: memoryview, shape: Tuple[int], dtype) -> memoryview:
         """Checks if this tensor meta is compatible with a sample's properties, as well as upcasts
         the incoming sample to match the tensor's dtype if needed (and possible).
 

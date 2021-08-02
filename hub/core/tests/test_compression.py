@@ -1,7 +1,12 @@
 from hub.tests.common import get_actual_compression_from_buffer
 import numpy as np
 import pytest
-from hub.core.compression import compress_array, decompress_array, compress_multiple, decompress_multiple
+from hub.core.compression import (
+    compress_array,
+    decompress_array,
+    compress_multiple,
+    decompress_multiple,
+)
 
 
 parametrize_compressions = pytest.mark.parametrize(
@@ -27,9 +32,7 @@ def test_array(compression, shape):
 
 @parametrize_compressions
 def test_multi_array(compression):
-    shapes = [
-        (100, 100,3), (100, 50, 3), (50, 100, 3), (50, 50, 3)
-    ]
+    shapes = [(100, 100, 3), (100, 50, 3), (50, 100, 3), (50, 50, 3)]
     arrays = [np.ones(shape, dtype="uint8") for shape in shapes]
     compressed_buffer = compress_multiple(arrays, compression)
     decompressed_arrays = decompress_multiple(compressed_buffer, shapes)
