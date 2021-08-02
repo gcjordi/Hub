@@ -40,7 +40,6 @@ HTYPE_CONFIGURATIONS: Dict[str, Dict] = {
     DEFAULT_HTYPE: {"dtype": None},
     "image": {
         "dtype": "uint8",
-        "sample_compression": REQUIRE_USER_SPECIFICATION,
     },
     "class_label": {
         "dtype": "uint32",

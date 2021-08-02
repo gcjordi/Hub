@@ -125,14 +125,14 @@ class ChunkEngine:
         self.min_chunk_size = self.max_chunk_size // 2
         self._meta_cache = meta_cache
 
-    @property
-    def meta_cache(self) -> LRUCache:
-        return self._meta_cache or self.cache
-
         if self.tensor_meta.chunk_compression:
             self._last_chunk_uncompressed: List[np.ndarray] = (
                 self.last_chunk.decompressed_samples if self.last_chunk else []
             )
+
+    @property
+    def meta_cache(self) -> LRUCache:
+        return self._meta_cache or self.cache
 
     @property
     def chunk_id_encoder(self) -> ChunkIdEncoder:
@@ -214,13 +214,17 @@ class ChunkEngine:
             for sample in array:
                 # TODO optimize this
                 last_chunk_uncompressed.append(sample)
-                compressed_bytes = compress_multiple(last_chunk_uncompressed)
+                compressed_bytes = compress_multiple(
+                    last_chunk_uncompressed, chunk_compression
+                )
                 if self._can_set_to_last_chunk(len(compressed_bytes)):
                     chunk = self.last_chunk
                 else:
                     chunk = self._create_new_chunk()
-                    last_chunk_uncompressed = last_chunk_uncompressed[-1:]
-                    compressed_bytes = compress_multiple(last_chunk_uncompressed)
+                    del last_chunk_uncompressed[:-1]
+                    compressed_bytes = compress_multiple(
+                        last_chunk_uncompressed, chunk_compression
+                    )
                 chunk.update_headers(len(buffer), shape)
                 chunk._data = compressed_bytes
                 self.chunk_id_encoder.register_samples(1)
@@ -295,19 +299,23 @@ class ChunkEngine:
         # update tensor meta first because erroneous meta information is better than un-accounted for data.
         buffer = self.tensor_meta.adapt_sample(buffer, shape, dtype)
         self.tensor_meta.update(shape, dtype, num_samples)
-
-        if self.tensor_meta.chunk_compression:
+        chunk_compression = self.tensor_meta.chunk_compression
+        if chunk_compression:
             last_chunk_uncompressed = self._last_chunk_uncompressed
             last_chunk_uncompressed.append(
                 np.frombuffer(buffer, dtype=dtype).reshape(shape)
             )
-            compressed_bytes = compress_multiple(last_chunk_uncompressed)
+            compressed_bytes = compress_multiple(
+                last_chunk_uncompressed, chunk_compression
+            )
             if self._can_set_to_last_chunk(len(compressed_bytes)):
                 chunk = self.last_chunk
             else:
                 chunk = self._create_new_chunk()
-                last_chunk_uncompressed = last_chunk_uncompressed[-1:]
-                compressed_bytes = compress_multiple(last_chunk_uncompressed)
+                del last_chunk_uncompressed[:-1]
+                compressed_bytes = compress_multiple(
+                    last_chunk_uncompressed, chunk_compression
+                )
             chunk.update_headers(len(buffer), shape)
             chunk._data = compressed_bytes
         else:

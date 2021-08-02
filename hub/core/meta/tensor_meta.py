@@ -261,6 +261,15 @@ def _validate_htype_overwrites(htype: str, htype_overwrite: dict):
             if defaults[key] == REQUIRE_USER_SPECIFICATION:
                 raise TensorMetaMissingRequiredValue(htype, key)
 
+    if (
+        htype == "image"
+        and htype_overwrite["chunk_compression"] == UNSPECIFIED
+        and htype_overwrite["sample_compression"] == UNSPECIFIED
+    ):
+        raise TensorMetaMissingRequiredValue(
+            htype, ["chunk_compression", "sample_compression"]
+        )
+
 
 def _replace_unspecified_values(htype: str, htype_overwrite: dict):
     """Replaces `UNSPECIFIED` values in `htype_overwrite` with the `htype`'s defaults."""
