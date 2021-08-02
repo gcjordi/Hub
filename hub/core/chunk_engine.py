@@ -228,7 +228,7 @@ class ChunkEngine:
                 nbytes.fill(sample_size)
             chunk = self.last_chunk if self.last_chunk else self._create_new_chunk()
             while True:
-                remaining_bytes_in_chunk = self.max_chunk_size - chunk.num_data_bytes
+                remaining_bytes_in_chunk = self.min_chunk_size - chunk.num_data_bytes
                 num_samples_to_current_chunk = 0
                 num_bytes_to_current_chunk = 0
                 while True:
@@ -486,7 +486,7 @@ class ChunkEngine:
 
     def _check_sample_size(self, num_bytes: int):
         if num_bytes > self.min_chunk_size:
-            msg = f"Sorry, samples that exceed maximum chunk size ({self.max_chunk_size} bytes) are not supported yet (coming soon!). Got: {num_bytes} bytes."
+            msg = f"Sorry, samples that exceed minimum chunk size ({self.min_chunk_size} bytes) are not supported yet (coming soon!). Got: {num_bytes} bytes."
 
             if (
                 self.tensor_meta.sample_compression is None
