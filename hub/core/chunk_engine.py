@@ -117,8 +117,9 @@ class ChunkEngine:
         self.min_chunk_size = self.max_chunk_size // 2
 
         if self.tensor_meta.chunk_compression:
-            self._endge_chunk_uncompressed: List[np.ndarray] = []
-            self._edge_chunk_compressed_nbytes = 0
+            self._last_chunk_uncompressed: List[np.ndarray] = (
+                self.last_chunk.decompressed_samples if self.last_chunk else []
+            )
 
     @property
     def chunk_id_encoder(self) -> ChunkIdEncoder:
@@ -204,19 +205,19 @@ class ChunkEngine:
         self.tensor_meta.update(shape, dtype, num_samples)
 
         if self.tensor_meta.chunk_compression:
-            edge_chunk_uncompressed = self._endge_chunk_uncompressed
-            endge_chunk_uncompressed.append(
+            last_chunk_uncompressed = self._last_chunk_uncompressed
+            last_chunk_uncompressed.append(
                 np.frombuffer(buffer, dtype=dtype).reshape(shape)
             )
-            compressed_bytes = compress_multiple(edge_chunk_uncompressed)
+            compressed_bytes = compress_multiple(last_chunk_uncompressed)
             if self._can_set_to_last_chunk(len(compressed_bytes)):
                 chunk = self.last_chunk
             else:
                 chunk = self._create_new_chunk()
-                edge_chunk_uncompressed = edge_chunk_uncompressed[-1:]
-                compressed_bytes = compress_multiple(edge_chunk_uncompressed)
-            self.last_chunk.update_headers(len(buffer), shape)
-            self.last_chunk._data = compressed_bytes
+                last_chunk_uncompressed = last_chunk_uncompressed[-1:]
+                compressed_bytes = compress_multiple(last_chunk_uncompressed)
+            chunk.update_headers(len(buffer), shape)
+            chunk._data = compressed_bytes
         else:
             buffer_consumed = self._try_appending_to_last_chunk(buffer, shape)
             if not buffer_consumed:
