@@ -110,8 +110,7 @@ def compress_multiple(arrays: Sequence[np.ndarray], compression: str) -> bytes:
 def decompress_multiple(
     buffer: Union[bytes, memoryview], shapes: Sequence[Tuple[int]]
 ) -> List[np.ndarray]:
-    canvas_shape = _get_bounding_shape(shapes)
-    canvas = decompress_array(buffer, canvas_shape)
+    canvas = decompress_array(buffer)
     arrays = []
     next_x = 0
     for shape in shapes:
